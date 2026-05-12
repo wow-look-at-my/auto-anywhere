@@ -1,0 +1,26 @@
+# auto-anywhere
+
+Anthropic API reverse proxy that forces thinking summaries and enables auto mode.
+
+## Build
+
+Build and test with `go-toolchain` (never bare `go` commands):
+
+```sh
+go-toolchain
+```
+
+Binary lands at `./build/auto-anywhere`.
+
+## Structure
+
+- `cmd/` -- Cobra CLI commands (one file per subcommand)
+- `proxy/` -- HTTP proxy server (reverse proxy + MITM forward proxy)
+- `rewrite/` -- Request/response rewrite logic (thinking injection, GrowthBook modification)
+
+## Key design decisions
+
+- Always forces `thinking: { type: "adaptive", display: "summarized" }` on every `/v1/messages` POST
+- Intercepts GrowthBook evaluation responses (`/api/eval/*`, `/api/features/*`) to inject `tengu_auto_mode_config` with `allowModels: ["*"]`
+- MITM forward proxy handles CONNECT tunneling for `api.anthropic.com` to catch GrowthBook traffic that bypasses `ANTHROPIC_BASE_URL`
+- SSE streaming responses pass through unmodified (only requests are rewritten for `/v1/messages`)
