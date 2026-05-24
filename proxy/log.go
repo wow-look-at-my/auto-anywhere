@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 )
+
+var whitespaceRun = regexp.MustCompile(`\s+`)
 
 const maxLogLen = 200
 
@@ -20,6 +23,19 @@ func logRequest(body []byte) {
 	model, _ := req["model"].(string)
 	stream, _ := req["stream"].(bool)
 
+	var toolNames string
+	if tools, ok := req["tools"].([]any); ok {
+		var names []string
+		for _, t := range tools {
+			if tool, ok := t.(map[string]any); ok {
+				if name, ok := tool["name"].(string); ok {
+					names = append(names, name)
+				}
+			}
+		}
+		toolNames = strings.Join(names, ", ")
+	}
+
 	var role, content string
 	if msgs, ok := req["messages"].([]any); ok && len(msgs) > 0 {
 		if last, ok := msgs[len(msgs)-1].(map[string]any); ok {
@@ -31,6 +47,7 @@ func logRequest(body []byte) {
 	slog.Info("--> request",
 		"model", model,
 		"stream", stream,
+		"tools", toolNames,
 		"role", role,
 		"content", truncate(content, maxLogLen),
 	)
@@ -210,6 +227,7 @@ func logNonStreamResponse(body []byte) {
 }
 
 func truncate(s string, maxLen int) string {
+	s = strings.TrimSpace(whitespaceRun.ReplaceAllString(s, " "))
 	if len(s) <= maxLen {
 		return s
 	}
