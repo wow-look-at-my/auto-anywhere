@@ -33,6 +33,14 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 		changed = true
 	}
 
+	// The API requires temperature=1 when thinking is enabled.
+	if temp, ok := msg["temperature"]; ok {
+		if t, _ := temp.(float64); t != 1 {
+			msg["temperature"] = float64(1)
+			changed = true
+		}
+	}
+
 	if !changed {
 		return body, false, nil
 	}
