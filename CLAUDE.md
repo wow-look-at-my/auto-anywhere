@@ -20,7 +20,7 @@ Binary lands at `./build/auto-anywhere`.
 
 ## Key design decisions
 
-- Always forces `thinking: { type: "adaptive", display: "summarized" }` on every `/v1/messages` POST
+- Always forces `thinking: { type: "adaptive", display: "summarized" }` on every `/v1/messages` POST; also coerces `temperature` to `1` when present, since the API requires it with thinking enabled
 - Intercepts GrowthBook evaluation responses (`/api/eval/*`, `/api/features/*`) to inject `tengu_auto_mode_config` with `allowModels: ["*"]`
 - MITM forward proxy handles CONNECT tunneling for `api.anthropic.com` to catch GrowthBook traffic that bypasses `ANTHROPIC_BASE_URL`
 - SSE streaming responses pass through unmodified (only requests are rewritten for `/v1/messages`)
