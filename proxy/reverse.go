@@ -58,6 +58,8 @@ func rewriteRequest(r *http.Request) {
 		return
 	}
 
+	logRequest(body)
+
 	out, changed, err := rewrite.InjectThinking(body)
 	if err != nil {
 		slog.Warn("thinking rewrite failed", "error", err)
@@ -79,6 +81,23 @@ func rewriteResponse(resp *http.Response) error {
 		return nil
 	}
 	path := resp.Request.URL.Path
+
+	if resp.Request.Method == http.MethodPost && strings.HasPrefix(path, "/v1/messages") {
+		ct := resp.Header.Get("Content-Type")
+		if strings.Contains(ct, "text/event-stream") {
+			resp.Body = newSSELogger(resp.Body)
+		} else {
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err == nil {
+				logNonStreamResponse(body)
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
+		}
+		return nil
+	}
+
 	if !isGrowthBookPath(path) {
 		return nil
 	}
