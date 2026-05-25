@@ -17,4 +17,4 @@ jobs:
 
   publish-ghcr:
     needs: test
-    uses: wow-look-at-my/actions/.github/workflows/publish-ghcr.yml@master
+    uses: wow-look-at-my/actions/.github/workflows/publish-ghcr.yml@claude/fix-ghcr-inputs
