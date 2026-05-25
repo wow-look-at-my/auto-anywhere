@@ -23,17 +23,9 @@ func logRequest(body []byte) {
 	model, _ := req["model"].(string)
 	stream, _ := req["stream"].(bool)
 
-	var toolNames string
+	var toolCount int
 	if tools, ok := req["tools"].([]any); ok {
-		var names []string
-		for _, t := range tools {
-			if tool, ok := t.(map[string]any); ok {
-				if name, ok := tool["name"].(string); ok {
-					names = append(names, name)
-				}
-			}
-		}
-		toolNames = strings.Join(names, ", ")
+		toolCount = len(tools)
 	}
 
 	var role, content string
@@ -47,7 +39,7 @@ func logRequest(body []byte) {
 	slog.Info("--> request",
 		"model", model,
 		"stream", stream,
-		"tools", toolNames,
+		"tools", toolCount,
 		"role", role,
 		"content", truncate(content, maxLogLen),
 	)
