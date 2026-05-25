@@ -1,11 +1,16 @@
-FROM golang:1.24-alpine AS build
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o /auto-anywhere .
+FROM scratch
 
-FROM alpine:3.21
-COPY --from=build /auto-anywhere /usr/local/bin/auto-anywhere
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.source="https://github.com/wow-look-at-my/auto-anywhere"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.description="Anthropic API reverse proxy that forces thinking summaries and enables auto mode"
+
+COPY --from=gcr.io/distroless/static-debian12 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --chmod=755 build/auto-anywhere_linux_amd64 /auto-anywhere
+
 EXPOSE 18080
-ENTRYPOINT ["auto-anywhere"]
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["/auto-anywhere"]
