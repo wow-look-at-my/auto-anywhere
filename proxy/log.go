@@ -56,9 +56,26 @@ func extractTextContent(msg map[string]any) string {
 			if !ok {
 				continue
 			}
-			if block["type"] == "text" {
+			switch block["type"] {
+			case "text":
 				if text, ok := block["text"].(string); ok {
 					parts = append(parts, text)
+				}
+			case "tool_result":
+				if s, ok := block["content"].(string); ok {
+					parts = append(parts, s)
+				} else if inner, ok := block["content"].([]any); ok {
+					for _, ib := range inner {
+						iblock, ok := ib.(map[string]any)
+						if !ok {
+							continue
+						}
+						if iblock["type"] == "text" {
+							if text, ok := iblock["text"].(string); ok {
+								parts = append(parts, text)
+							}
+						}
+					}
 				}
 			}
 		}
@@ -179,6 +196,18 @@ func logNonStreamResponse(body []byte) {
 	var resp map[string]any
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return
+	}
+
+	if resp["type"] == "error" {
+		if errObj, ok := resp["error"].(map[string]any); ok {
+			errType, _ := errObj["type"].(string)
+			errMsg, _ := errObj["message"].(string)
+			slog.Warn("<-- error response",
+				"error_type", errType,
+				"message", truncate(errMsg, maxLogLen),
+			)
+			return
+		}
 	}
 
 	model, _ := resp["model"].(string)
