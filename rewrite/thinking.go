@@ -57,6 +57,13 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 		changed = true
 	}
 
+	if maxTok, ok := msg["max_tokens"].(float64); ok && maxTok > 0 {
+		if bt, ok := thinking["budget_tokens"].(float64); ok && bt >= maxTok {
+			thinking["budget_tokens"] = maxTok - 1
+			changed = true
+		}
+	}
+
 	if temp, ok := msg["temperature"]; ok {
 		if t, _ := temp.(float64); t != 1 {
 			msg["temperature"] = float64(1)
