@@ -185,6 +185,43 @@ func TestInjectThinking_AllowsToolChoiceAuto(t *testing.T) {
 	require.Equal(t, "enabled", th["type"])
 }
 
+func TestInjectThinking_ClampsBudgetToMaxTokens(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","max_tokens":4096,"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.True(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, "enabled", th["type"])
+	require.Equal(t, float64(4095), th["budget_tokens"])
+}
+
+func TestInjectThinking_ClampsBudgetPreservedByCallerToMaxTokens(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","max_tokens":5000,"thinking":{"type":"enabled","budget_tokens":10000},"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.True(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, float64(4999), th["budget_tokens"])
+}
+
+func TestInjectThinking_NoClampsWhenMaxTokensLargeEnough(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","max_tokens":50000,"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.True(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, float64(defaultBudgetTokens), th["budget_tokens"])
+}
+
 func TestInjectThinking_AllowsNoToolChoice(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-6","messages":[]}`)
 	out, changed, err := InjectThinking(body)
