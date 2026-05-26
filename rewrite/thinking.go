@@ -6,6 +6,7 @@ import (
 )
 
 const defaultBudgetTokens = 10000
+const minBudgetTokens = 1024
 
 // InjectThinking forces thinking with summarized display on a /v1/messages
 // request body. Uses adaptive thinking for 4-7 models and extended thinking
@@ -57,9 +58,14 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 		changed = true
 	}
 
-	if maxTok, ok := msg["max_tokens"].(float64); ok && maxTok > 0 {
-		if bt, ok := thinking["budget_tokens"].(float64); ok && bt >= maxTok {
-			thinking["budget_tokens"] = maxTok - 1
+	if bt, ok := thinking["budget_tokens"].(float64); ok && bt < float64(minBudgetTokens) {
+		thinking["budget_tokens"] = float64(minBudgetTokens)
+		changed = true
+	}
+
+	if bt, ok := thinking["budget_tokens"].(float64); ok {
+		if maxTok, ok := msg["max_tokens"].(float64); ok && maxTok > 0 && bt >= maxTok {
+			msg["max_tokens"] = bt + 1
 			changed = true
 		}
 	}
