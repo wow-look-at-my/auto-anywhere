@@ -10,10 +10,16 @@ const defaultBudgetTokens = 10000
 // InjectThinking forces thinking with summarized display on a /v1/messages
 // request body. Uses adaptive thinking for 4-7 models and extended thinking
 // (type "enabled" + budget_tokens) for all other models.
+// Skips injection when tool_choice forces a specific tool, since the API
+// rejects thinking + forced tool_choice.
 func InjectThinking(body []byte) ([]byte, bool, error) {
 	var msg map[string]any
 	if err := json.Unmarshal(body, &msg); err != nil {
 		return body, false, err
+	}
+
+	if forcesToolChoice(msg) {
+		return body, false, nil
 	}
 
 	model, _ := msg["model"].(string)
@@ -68,4 +74,15 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 		return body, false, err
 	}
 	return out, true, nil
+}
+
+// forcesToolChoice returns true when tool_choice is set to "any" or a
+// specific tool (type "tool"), both of which are incompatible with thinking.
+func forcesToolChoice(msg map[string]any) bool {
+	tc, ok := msg["tool_choice"].(map[string]any)
+	if !ok {
+		return false
+	}
+	t, _ := tc["type"].(string)
+	return t == "any" || t == "tool"
 }
