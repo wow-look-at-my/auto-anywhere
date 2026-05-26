@@ -103,20 +103,32 @@ func TestInjectThinking_Disabled47(t *testing.T) {
 	require.Equal(t, "summarized", th["display"])
 }
 
-func TestInjectThinking_HaikuSkipped(t *testing.T) {
+func TestInjectThinking_HaikuExtended(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-4-5-20251001","messages":[{"role":"user","content":"hi"}]}`)
 	out, changed, err := InjectThinking(body)
 	require.Nil(t, err)
-	require.False(t, changed)
-	require.Equal(t, body, out)
+	require.True(t, changed)
+
+	var msg map[string]any
+	json.Unmarshal(out, &msg)
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, "enabled", th["type"])
+	require.Equal(t, "summarized", th["display"])
+	require.Equal(t, float64(defaultBudgetTokens), th["budget_tokens"])
 }
 
-func TestInjectThinking_HaikuWithThinkingSkipped(t *testing.T) {
+func TestInjectThinking_HaikuPreservesBudget(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-4-5","thinking":{"type":"enabled","budget_tokens":5000},"messages":[]}`)
 	out, changed, err := InjectThinking(body)
 	require.Nil(t, err)
-	require.False(t, changed)
-	require.Equal(t, body, out)
+	require.True(t, changed)
+
+	var msg map[string]any
+	json.Unmarshal(out, &msg)
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, "enabled", th["type"])
+	require.Equal(t, float64(5000), th["budget_tokens"])
+	require.Equal(t, "summarized", th["display"])
 }
 
 func TestInjectThinking_TemperatureOverride(t *testing.T) {

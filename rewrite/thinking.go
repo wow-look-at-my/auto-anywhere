@@ -8,8 +8,8 @@ import (
 const defaultBudgetTokens = 10000
 
 // InjectThinking forces thinking with summarized display on a /v1/messages
-// request body. Uses adaptive thinking for 4-7 models, extended thinking
-// for other thinking-capable models, and skips haiku models entirely.
+// request body. Uses adaptive thinking for 4-7 models and extended thinking
+// (type "enabled" + budget_tokens) for all other models.
 func InjectThinking(body []byte) ([]byte, bool, error) {
 	var msg map[string]any
 	if err := json.Unmarshal(body, &msg); err != nil {
@@ -17,11 +17,6 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 	}
 
 	model, _ := msg["model"].(string)
-	modelLower := strings.ToLower(model)
-
-	if strings.Contains(modelLower, "haiku") {
-		return body, false, nil
-	}
 
 	thinking, _ := msg["thinking"].(map[string]any)
 	if thinking == nil {
@@ -29,7 +24,7 @@ func InjectThinking(body []byte) ([]byte, bool, error) {
 	}
 
 	changed := false
-	supportsAdaptive := strings.Contains(modelLower, "4-7")
+	supportsAdaptive := strings.Contains(strings.ToLower(model), "4-7")
 
 	if supportsAdaptive {
 		if thinking["type"] != "adaptive" {
