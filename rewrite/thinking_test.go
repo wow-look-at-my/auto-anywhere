@@ -150,3 +150,49 @@ func TestInjectThinking_TemperatureAlreadyOne(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, changed)
 }
+
+func TestInjectThinking_SkipsWhenToolChoiceForcesTool(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","tool_choice":{"type":"tool","name":"web_search"},"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.False(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	require.Nil(t, msg["thinking"])
+}
+
+func TestInjectThinking_SkipsWhenToolChoiceAny(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","tool_choice":{"type":"any"},"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.False(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	require.Nil(t, msg["thinking"])
+}
+
+func TestInjectThinking_AllowsToolChoiceAuto(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","tool_choice":{"type":"auto"},"messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.True(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, "enabled", th["type"])
+}
+
+func TestInjectThinking_AllowsNoToolChoice(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","messages":[]}`)
+	out, changed, err := InjectThinking(body)
+	require.Nil(t, err)
+	require.True(t, changed)
+
+	var msg map[string]any
+	require.Nil(t, json.Unmarshal(out, &msg))
+	th := msg["thinking"].(map[string]any)
+	require.Equal(t, "enabled", th["type"])
+}
