@@ -15,6 +15,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: wow-look-at-my/go-toolchain@v1
 
+  integration:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_WOW }}
+        run: go test -tags integration -count 1 -timeout 120s ./integration/
+
   publish-ghcr:
     needs: test
     uses: wow-look-at-my/actions/.github/workflows/publish-ghcr.yml@master
