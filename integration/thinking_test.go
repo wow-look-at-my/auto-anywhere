@@ -31,7 +31,7 @@ func TestThinkingByModel(t *testing.T) {
 	models := []string{
 		"claude-haiku-4-5-20251001",
 		"claude-sonnet-4-6",
-		"claude-sonnet-4-7",
+		"claude-opus-4-7",
 	}
 
 	for _, model := range models {
