@@ -1,6 +1,6 @@
 //go:build integration
 
-package proxy
+package integration
 
 import (
 	"bytes"
@@ -10,15 +10,17 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/wow-look-at-my/auto-anywhere/proxy"
 )
 
-func TestIntegration_ThinkingByModel(t *testing.T) {
+func TestThinkingByModel(t *testing.T) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
-	p, err := New(Config{Upstream: "https://api.anthropic.com"})
+	p, err := proxy.New(proxy.Config{Upstream: "https://api.anthropic.com"})
 	if err != nil {
 		t.Fatal(err)
 	}

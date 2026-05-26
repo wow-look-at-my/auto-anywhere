@@ -26,7 +26,7 @@ jobs:
       - name: Integration tests
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_WOW }}
-        run: go test -tags integration -run TestIntegration -count 1 -timeout 120s ./proxy/
+        run: go test -tags integration -count 1 -timeout 120s ./integration/
 
   publish-ghcr:
     needs: test
