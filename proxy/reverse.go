@@ -54,7 +54,7 @@ func rewriteRequest(r *http.Request) {
 	r.Body.Close()
 	if err != nil {
 		slog.Error("reading request body", "error", err)
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		setBody(r, body)
 		return
 	}
 
@@ -63,8 +63,7 @@ func rewriteRequest(r *http.Request) {
 	out, changed, err := rewrite.InjectThinking(body)
 	if err != nil {
 		slog.Warn("thinking rewrite failed", "error", err)
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		r.ContentLength = int64(len(body))
+		setBody(r, body)
 		return
 	}
 
@@ -72,8 +71,26 @@ func rewriteRequest(r *http.Request) {
 		slog.Info("injected thinking", "path", r.URL.Path)
 	}
 
-	r.Body = io.NopCloser(bytes.NewReader(out))
-	r.ContentLength = int64(len(out))
+	setBody(r, out)
+}
+
+// setBody installs body as the request payload and, crucially, sets GetBody so
+// net/http can rewind and transparently retry the request.
+//
+// httputil.ReverseProxy never sets GetBody, and reading the inbound body here
+// leaves it nil. Without GetBody, persistConn.shouldRetryRequest refuses to
+// retry a body-bearing POST whose upstream keepalive connection went stale
+// (the common "nothingWrittenError" on a reused connection). That failure then
+// surfaces to the client as a 502, the Anthropic SDK re-sends the identical
+// request, and a single client turn becomes two upstream calls. Setting
+// GetBody lets the transport retry the safe (nothing-written) case itself, so
+// one client request maps to one upstream request.
+func setBody(r *http.Request, body []byte) {
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
 }
 
 func rewriteResponse(resp *http.Response) error {

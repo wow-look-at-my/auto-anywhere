@@ -14,6 +14,16 @@ var whitespaceRun = regexp.MustCompile(`\s+`)
 
 const maxLogLen = 200
 
+// maxSummaryText caps how much streamed text the logger retains. The log line
+// is truncated to maxLogLen anyway, so there is no reason to keep the whole
+// response in memory.
+const maxSummaryText = maxLogLen * 4
+
+// maxPendingEvent bounds the partial-event buffer in case the upstream never
+// emits an event terminator, so a single response cannot grow memory without
+// limit.
+const maxPendingEvent = 64 * 1024
+
 func logRequest(body []byte) {
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -84,11 +94,83 @@ func extractTextContent(msg map[string]any) string {
 	return ""
 }
 
+// sseSummary accumulates the handful of fields we log from a stream of SSE
+// events.
+type sseSummary struct {
+	model        string
+	stopReason   string
+	inputTokens  int
+	outputTokens int
+	text         strings.Builder
+}
+
+// consume parses a single complete SSE event block (without its trailing blank
+// line) and folds the relevant fields into the summary.
+func (s *sseSummary) consume(event string) {
+	var eventType, data string
+	for _, line := range strings.Split(strings.TrimSpace(event), "\n") {
+		if v, ok := strings.CutPrefix(line, "event: "); ok {
+			eventType = v
+		} else if v, ok := strings.CutPrefix(line, "data: "); ok {
+			data = v
+		}
+	}
+	if data == "" {
+		return
+	}
+
+	switch eventType {
+	case "message_start":
+		var ev struct {
+			Message struct {
+				Model string `json:"model"`
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(data), &ev) == nil {
+			s.model = ev.Message.Model
+			s.inputTokens = ev.Message.Usage.InputTokens
+		}
+	case "content_block_delta":
+		var ev struct {
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
+		if json.Unmarshal([]byte(data), &ev) == nil && ev.Delta.Type == "text_delta" {
+			if s.text.Len() < maxSummaryText {
+				s.text.WriteString(ev.Delta.Text)
+			}
+		}
+	case "message_delta":
+		var ev struct {
+			Delta struct {
+				StopReason string `json:"stop_reason"`
+			} `json:"delta"`
+			Usage struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal([]byte(data), &ev) == nil {
+			s.stopReason = ev.Delta.StopReason
+			s.outputTokens = ev.Usage.OutputTokens
+		}
+	}
+}
+
+// sseLogger is a pass-through ReadCloser that logs a one-line summary of an SSE
+// response once the stream ends. It parses events incrementally so it never
+// holds more than a single partial event in memory, regardless of how long the
+// response is.
 type sseLogger struct {
-	body io.ReadCloser
-	buf  bytes.Buffer
-	mu   sync.Mutex
-	done bool
+	body    io.ReadCloser
+	mu      sync.Mutex
+	pending []byte
+	summary sseSummary
+	done    bool
 }
 
 func newSSELogger(body io.ReadCloser) *sseLogger {
@@ -99,7 +181,7 @@ func (l *sseLogger) Read(p []byte) (int, error) {
 	n, err := l.body.Read(p)
 	if n > 0 {
 		l.mu.Lock()
-		l.buf.Write(p[:n])
+		l.ingest(p[:n])
 		l.mu.Unlock()
 	}
 	if err != nil {
@@ -113,6 +195,30 @@ func (l *sseLogger) Close() error {
 	return l.body.Close()
 }
 
+// ingest appends newly read bytes and folds any now-complete events into the
+// summary, retaining only the trailing partial event. The caller holds l.mu.
+func (l *sseLogger) ingest(b []byte) {
+	l.pending = append(l.pending, b...)
+	for {
+		i := bytes.Index(l.pending, []byte("\n\n"))
+		if i < 0 {
+			break
+		}
+		l.summary.consume(string(l.pending[:i]))
+		l.pending = l.pending[i+2:]
+	}
+	if len(l.pending) > maxPendingEvent {
+		l.pending = l.pending[len(l.pending)-maxPendingEvent:]
+	}
+}
+
+// snapshot returns the parsed summary so far. Intended for tests.
+func (l *sseLogger) snapshot() sseSummary {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.summary
+}
+
 func (l *sseLogger) finish() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -121,75 +227,19 @@ func (l *sseLogger) finish() {
 	}
 	l.done = true
 
-	text, model, stopReason, inputTokens, outputTokens := parseSSEEvents(l.buf.String())
-	slog.Info("<-- response",
-		"model", model,
-		"stop_reason", stopReason,
-		"input_tokens", inputTokens,
-		"output_tokens", outputTokens,
-		"content", truncate(text, maxLogLen),
-	)
-}
-
-func parseSSEEvents(raw string) (text, model, stopReason string, inputTokens, outputTokens int) {
-	var textParts []string
-
-	for _, event := range strings.Split(raw, "\n\n") {
-		lines := strings.Split(strings.TrimSpace(event), "\n")
-		var eventType, data string
-		for _, line := range lines {
-			if strings.HasPrefix(line, "event: ") {
-				eventType = strings.TrimPrefix(line, "event: ")
-			} else if strings.HasPrefix(line, "data: ") {
-				data = strings.TrimPrefix(line, "data: ")
-			}
-		}
-		if data == "" {
-			continue
-		}
-
-		switch eventType {
-		case "message_start":
-			var ev struct {
-				Message struct {
-					Model string `json:"model"`
-					Usage struct {
-						InputTokens int `json:"input_tokens"`
-					} `json:"usage"`
-				} `json:"message"`
-			}
-			if json.Unmarshal([]byte(data), &ev) == nil {
-				model = ev.Message.Model
-				inputTokens = ev.Message.Usage.InputTokens
-			}
-		case "content_block_delta":
-			var ev struct {
-				Delta struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"delta"`
-			}
-			if json.Unmarshal([]byte(data), &ev) == nil && ev.Delta.Type == "text_delta" {
-				textParts = append(textParts, ev.Delta.Text)
-			}
-		case "message_delta":
-			var ev struct {
-				Delta struct {
-					StopReason string `json:"stop_reason"`
-				} `json:"delta"`
-				Usage struct {
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
-			}
-			if json.Unmarshal([]byte(data), &ev) == nil {
-				stopReason = ev.Delta.StopReason
-				outputTokens = ev.Usage.OutputTokens
-			}
-		}
+	// Fold in any final event that wasn't terminated by a blank line.
+	if len(l.pending) > 0 {
+		l.summary.consume(string(l.pending))
+		l.pending = nil
 	}
 
-	text = strings.Join(textParts, "")
-	return
+	slog.Info("<-- response",
+		"model", l.summary.model,
+		"stop_reason", l.summary.stopReason,
+		"input_tokens", l.summary.inputTokens,
+		"output_tokens", l.summary.outputTokens,
+		"content", truncate(l.summary.text.String(), maxLogLen),
+	)
 }
 
 func logNonStreamResponse(body []byte) {
